@@ -82,18 +82,29 @@ app.layout = html.Div(style={'fontFamily': 'Tahoma, sans-serif', 'padding': '30p
      Input('input-cost', 'value')]
 )
 def update_dash(trade_type, country, month, product, cost):
-    if predictor is None: return "Error", "Error", {}, px.bar()
+    if predictor is None: return "Error", "Error", {}, px.line()
 
-    # 1. ป้อนข้อมูลให้ AutoGluon
-    input_data = pd.DataFrame({'Year': [2568], 'Month': [month], 'Country': [country], 'Product': [product], 'TradeType': [trade_type]})
+    # 1. สร้างข้อมูลจำลองทั้ง 12 เดือน เพื่อให้เห็นเทรนด์แบบกราฟหุ้น
+    months_list = list(range(1, 13))
+    input_data_all = pd.DataFrame({
+        'Year': [2568] * 12, 
+        'Month': months_list, 
+        'Country': [country] * 12, 
+        'Product': [product] * 12, 
+        'TradeType': [trade_type] * 12
+    })
     
+    # ให้โมเดลทำนายรวดเดียว 12 เดือน
     try:
-        predicted_value = predictor.predict(input_data).iloc[0]
-        if predicted_value < 0: predicted_value = 0
+        predictions_all = predictor.predict(input_data_all).tolist()
+        predictions_all = [max(0, p) for p in predictions_all] # กันตัวเลขติดลบ
     except:
-        predicted_value = 0
+        predictions_all = [0] * 12
         
-    # 2. คำนวณกำไร/ขาดทุนจากโมดูลเสริม (รายได้ - ต้นทุน)
+    # ดึงค่าเฉพาะเดือนที่ผู้ใช้เลือกมาแสดงผล
+    predicted_value = predictions_all[month - 1]
+        
+    # 2. คำนวณกำไร/ขาดทุนจากโมดูลเสริม
     est_cost = cost if cost else 0
     profit = predicted_value - est_cost
     
@@ -105,15 +116,43 @@ def update_dash(trade_type, country, month, product, cost):
         profit_text = f"📉 คาดการณ์ขาดทุน: {profit:,.2f} บาท"
         profit_style = {'flex': 1, 'fontSize': '20px', 'fontWeight': 'bold', 'color': '#c0392b', 'padding': '20px', 'backgroundColor': '#fdedec', 'borderRadius': '10px', 'textAlign': 'center'}
 
-    value_text = f"💰 พยากรณ์มูลค่าการ{trade_type}: {predicted_value:,.2f} บาท"
+    value_text = f"💰 พยากรณ์มูลค่าการ{trade_type} (เดือน {month}): {predicted_value:,.2f} บาท"
     
-    # 4. สร้างกราฟแท่ง
-    fig = px.bar(
-        x=[f"เดือนที่ {month} ({country})"], y=[predicted_value], 
-        labels={'x': 'ช่วงเวลาพยากรณ์', 'y': 'มูลค่า (บาท)'},
-        title=f"แนวโน้มมูลค่าการ{trade_type} สินค้า {product.split()[0][:20]}...",
-        color_discrete_sequence=['#3498db']
+    # 4. 🌟 สร้างกราฟเส้น (Line Chart) สไตล์เทรนด์หุ้น
+    import plotly.graph_objects as go
+    
+    fig = go.Figure()
+    
+    # วาดเส้นเทรนด์ทั้ง 12 เดือน
+    fig.add_trace(go.Scatter(
+        x=[f"เดือน {m}" for m in months_list], 
+        y=predictions_all, 
+        mode='lines+markers',
+        name='แนวโน้มทั้งปี',
+        line=dict(color='#2980b9', width=3),
+        marker=dict(size=8)
+    ))
+    
+    # ไฮไลต์จุด "เดือนที่ผู้ใช้เลือก" ให้เด่นๆ (จุดใหญ่สีแดง)
+    fig.add_trace(go.Scatter(
+        x=[f"เดือน {month}"], 
+        y=[predicted_value], 
+        mode='markers',
+        name='เดือนที่เป้าหมาย',
+        marker=dict(color='#e74c3c', size=16, symbol='star')
+    ))
+
+    # ตกแต่งกราฟให้สวยงาม
+    fig.update_layout(
+        title=f"📈 กราฟหุ้นแสดงเทรนด์การ{trade_type}ตลอดปี: สินค้า {product[:30]}...",
+        xaxis_title="เดือน (ปี พ.ศ. 2568)",
+        yaxis_title="มูลค่าพยากรณ์ (บาท)",
+        hovermode="x unified",
+        plot_bgcolor='white',
+        paper_bgcolor='white'
     )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     
     return value_text, profit_text, profit_style, fig
 
