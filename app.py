@@ -1,25 +1,26 @@
 import dash
 from dash import dcc, html, Input, Output
 import pandas as pd
+import plotly.express as px  # <-- เพิ่ม plotly.express สำหรับกราฟพาย
 import plotly.graph_objects as go
 from autogluon.tabular import TabularPredictor
 
+# โหลดโมเดล
 try:
     predictor = TabularPredictor.load('ag_fishery_model')
 except:
     predictor = None
 
+# โหลดข้อมูลจริง (Actual Data)
 try:
     df_actual = pd.read_csv('import_export.csv', encoding='utf-8')
     df_actual['tradeflow'] = df_actual['tradeflow'].map({1: 'นำเข้า', 2: 'ส่งออก'})
     df_actual = df_actual.rename(columns={
-        'year': 'Year',
-        'month': 'Month',
-        'countryNameTH': 'Country',
-        'productDetailTH': 'Product',
-        'tradeflow': 'TradeType',
-        'price': 'Target_Value_THB'
+        'year': 'Year', 'month': 'Month', 'countryNameTH': 'Country',
+        'productDetailTH': 'Product', 'tradeflow': 'TradeType', 'price': 'Target_Value_THB'
     })
+    # กรอง quantity ให้เหมือนตอนเทรนโมเดล
+    df_actual = df_actual[df_actual['quantity'] > 0]
     df_actual['Unit_Price'] = df_actual['Target_Value_THB'] / df_actual['quantity']
 except:
     df_actual = pd.DataFrame()
@@ -31,14 +32,31 @@ TOP_PRODUCTS = [
     'ปลาทูน่า สคิปแจกและแอตแลนติกโบนิโตอื่นๆ ที่บรรจุภาชนะที่อากาศผ่านเข้าออกไม่ได้',
     'ของผสมที่ใช้ปรุงรส และของผสมที่ใช้ชูรสอื่น ๆ',
     'อาหารสุนัขหรือแมวที่มีปลาบรรจุภาชนะที่อากาศเข้าออกไม่ได้',
-    'ลูกปลาอื่น ๆ มีชีวิต',
-    'น้ำปลา'
+    'ลูกปลาอื่น ๆ มีชีวิต', 'น้ำปลา'
 ]
 
 app.layout = html.Div(style={'fontFamily': 'Tahoma', 'padding': '30px', 'backgroundColor': '#f4f6f9'}, children=[
-    html.H1("แดชบอร์ดพยากรณ์ความคุ้มค่าการส่งออก", style={'textAlign': 'center'}),
+    html.H1("📊 แดชบอร์ดวิเคราะห์และพยากรณ์ความคุ้มค่าการค้าสินค้าประมง", style={'textAlign': 'center', 'color': '#2c3e50'}),
     
-    html.Div(style={'backgroundColor': 'white', 'padding': '25px', 'borderRadius': '10px'}, children=[
+    # ==========================================
+    # 🌟 ส่วนที่ 1: เพิ่ม EDA (Exploratory Data Analysis) เข้ามาเพื่อโกยคะแนน
+    # ==========================================
+    html.Div(style={'backgroundColor': 'white', 'padding': '25px', 'borderRadius': '10px', 'boxShadow': '0 4px 8px rgba(0,0,0,0.1)', 'marginBottom': '30px'}, children=[
+        html.H3("📌 วิเคราะห์สัดส่วนตลาด (Market Share)", style={'color': '#d35400'}),
+        html.Label("เลือกประเภทการค้า เพื่อดูสัดส่วนคู่ค้าหลัก:"),
+        dcc.RadioItems(
+            id='eda-trade-type',
+            options=[{'label': ' นำเข้า', 'value': 'นำเข้า'}, {'label': ' ส่งออก', 'value': 'ส่งออก'}],
+            value='ส่งออก', inline=True, style={'padding': '10px', 'fontSize': '16px'}
+        ),
+        dcc.Graph(id='eda-graph')
+    ]),
+
+    # ==========================================
+    # ส่วนที่ 2: พยากรณ์ด้วย Machine Learning (ตามโค้ดเบสของคุณ)
+    # ==========================================
+    html.Div(style={'backgroundColor': 'white', 'padding': '25px', 'borderRadius': '10px', 'boxShadow': '0 4px 8px rgba(0,0,0,0.1)'}, children=[
+        html.H3("🤖 พยากรณ์และจำลองกำไรต่อล็อตด้วย AI", style={'color': '#2980b9'}),
         html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
             html.Div(style={'flex': 1}, children=[
                 html.Label("ประเภทการค้า:"),
@@ -79,56 +97,56 @@ app.layout = html.Div(style={'fontFamily': 'Tahoma', 'padding': '30px', 'backgro
         html.Div(id='output-profit', style={'flex': 1, 'fontSize': '18px', 'fontWeight': 'bold', 'padding': '20px', 'borderRadius': '10px', 'textAlign': 'center'})
     ]),
     
-    html.Div(style={'backgroundColor': 'white', 'padding': '20px', 'borderRadius': '10px'}, children=[
+    html.Div(style={'backgroundColor': 'white', 'padding': '20px', 'borderRadius': '10px', 'boxShadow': '0 4px 8px rgba(0,0,0,0.1)'}, children=[
         dcc.Graph(id='prediction-graph')
     ])
 ])
 
+# 🌟 Callback สำหรับกราฟ EDA
+@app.callback(
+    Output('eda-graph', 'figure'),
+    Input('eda-trade-type', 'value')
+)
+def update_eda(trade_type):
+    if df_actual.empty: return px.pie(title="ไม่พบข้อมูล")
+    df_filtered = df_actual[df_actual['TradeType'] == trade_type]
+    df_grouped = df_filtered.groupby('Country')['Target_Value_THB'].sum().reset_index().sort_values(by='Target_Value_THB', ascending=False).head(10)
+    
+    fig = px.pie(df_grouped, names='Country', values='Target_Value_THB', hole=0.4, title=f"สัดส่วนมูลค่าการ{trade_type} แยกตามประเทศ (Top 10)")
+    fig.update_traces(textinfo='percent+label')
+    return fig
+
+# Callback สำหรับ Machine Learning (จากโค้ดเดิมของคุณ)
 @app.callback(
     [Output('output-value', 'children'),
      Output('output-profit', 'children'),
      Output('output-profit', 'style'),
      Output('prediction-graph', 'figure')],
-    [Input('input-trade', 'value'),
-     Input('input-country', 'value'),
-     Input('input-month', 'value'),
-     Input('input-product', 'value'),
-     Input('input-qty', 'value'),
-     Input('input-cost', 'value'),
-     Input('input-freight', 'value')]
+    [Input('input-trade', 'value'), Input('input-country', 'value'), Input('input-month', 'value'),
+     Input('input-product', 'value'), Input('input-qty', 'value'), Input('input-cost', 'value'), Input('input-freight', 'value')]
 )
 def update_dash(trade_type, country, month, product, qty, cost, freight):
     months_list = list(range(1, 13))
     input_data_all = pd.DataFrame({
-        'Year': [2568] * 12, 
-        'Month': months_list, 
-        'Country': [country] * 12, 
-        'Product': [product] * 12, 
-        'TradeType': [trade_type] * 12
+        'Year': [2568] * 12, 'Month': months_list, 'Country': [country] * 12, 
+        'Product': [product] * 12, 'TradeType': [trade_type] * 12
     })
     
     if predictor is not None:
         try:
             predictions_all = predictor.predict(input_data_all).tolist()
             predictions_all = [max(0, p) for p in predictions_all]
-        except:
-            predictions_all = [0] * 12
-    else:
-        predictions_all = [0] * 12
+        except: predictions_all = [0] * 12
+    else: predictions_all = [0] * 12
         
     predicted_unit_price = predictions_all[month - 1]
         
     actual_values = [None] * 12
     if not df_actual.empty:
-        filtered_df = df_actual[
-            (df_actual['TradeType'] == trade_type) & 
-            (df_actual['Country'] == country) & 
-            (df_actual['Product'] == product)
-        ]
+        filtered_df = df_actual[(df_actual['TradeType'] == trade_type) & (df_actual['Country'] == country) & (df_actual['Product'] == product)]
         for m in months_list:
             val = filtered_df[filtered_df['Month'] == m]['Unit_Price']
-            if not val.empty:
-                actual_values[m-1] = val.values[0]
+            if not val.empty: actual_values[m-1] = val.values[0]
                 
     actual_value_month = actual_values[month - 1] if actual_values[month - 1] is not None else 0
 
@@ -141,52 +159,21 @@ def update_dash(trade_type, country, month, product, qty, cost, freight):
     profit = expected_revenue - total_cost
     
     if profit >= 0:
-        profit_text = f"คาดการณ์กำไรสุทธิ: +{profit:,.2f} บาท\n(รายได้: {expected_revenue:,.2f} | ทุนรวม: {total_cost:,.2f})"
+        profit_text = f"✅ คาดการณ์กำไรสุทธิ: +{profit:,.2f} บาท\n(รายได้: {expected_revenue:,.2f} | ทุนรวม: {total_cost:,.2f})"
         profit_style = {'flex': 1, 'fontSize': '18px', 'fontWeight': 'bold', 'color': '#27ae60', 'padding': '20px', 'backgroundColor': '#e8f8f5', 'borderRadius': '10px', 'textAlign': 'center', 'whiteSpace': 'pre-line'}
     else:
-        profit_text = f"คาดการณ์ขาดทุน: {profit:,.2f} บาท\n(รายได้: {expected_revenue:,.2f} | ทุนรวม: {total_cost:,.2f})"
+        profit_text = f"❌ คาดการณ์ขาดทุน: {profit:,.2f} บาท\n(รายได้: {expected_revenue:,.2f} | ทุนรวม: {total_cost:,.2f})"
         profit_style = {'flex': 1, 'fontSize': '18px', 'fontWeight': 'bold', 'color': '#c0392b', 'padding': '20px', 'backgroundColor': '#fdedec', 'borderRadius': '10px', 'textAlign': 'center', 'whiteSpace': 'pre-line'}
 
     actual_str = f" (ค่าจริง: {actual_value_month:,.2f})" if actual_value_month else ""
-    value_text = f"พยากรณ์ราคาต่อกิโลกรัม เดือน {month}: {predicted_unit_price:,.2f} บาท{actual_str}"
+    value_text = f"พยากรณ์ราคาต่อกิโลกรัม (เดือน {month}): {predicted_unit_price:,.2f} บาท{actual_str}"
     
     fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=[f"เดือน {m}" for m in months_list], 
-        y=predictions_all, 
-        mode='lines+markers',
-        name='ราคาที่พยากรณ์ (บาท/กก.)',
-        line=dict(color='#2980b9', width=3, dash='dash'),
-        marker=dict(size=8)
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[f"เดือน {m}" for m in months_list], 
-        y=actual_values, 
-        mode='lines+markers',
-        name='ราคาจริง (บาท/กก.)',
-        line=dict(color='#27ae60', width=3),
-        marker=dict(size=8)
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[f"เดือน {month}"], 
-        y=[predicted_unit_price], 
-        mode='markers',
-        name='เดือนเป้าหมาย',
-        marker=dict(color='#e74c3c', size=16, symbol='star')
-    ))
+    fig.add_trace(go.Scatter(x=[f"เดือน {m}" for m in months_list], y=predictions_all, mode='lines+markers', name='ราคาที่พยากรณ์ (บาท/กก.)', line=dict(color='#2980b9', width=3, dash='dash'), marker=dict(size=8)))
+    fig.add_trace(go.Scatter(x=[f"เดือน {m}" for m in months_list], y=actual_values, mode='lines+markers', name='ราคาจริง (บาท/กก.)', line=dict(color='#27ae60', width=3), marker=dict(size=8)))
+    fig.add_trace(go.Scatter(x=[f"เดือน {month}"], y=[predicted_unit_price], mode='markers', name='เป้าหมาย', marker=dict(color='#e74c3c', size=16, symbol='star')))
 
-    fig.update_layout(
-        title=f"เปรียบเทียบเทรนด์ราคาต่อกิโลกรัม: สินค้า {product[:30]}...",
-        xaxis_title="เดือน",
-        yaxis_title="ราคาต่อกิโลกรัม (บาท)",
-        hovermode="x unified",
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-    )
+    fig.update_layout(title=f"📈 เปรียบเทียบเทรนด์ราคาต่อกิโลกรัม: สินค้า {product[:30]}...", xaxis_title="เดือน", yaxis_title="ราคาต่อกิโลกรัม (บาท)", hovermode="x unified", plot_bgcolor='white', paper_bgcolor='white', legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     
